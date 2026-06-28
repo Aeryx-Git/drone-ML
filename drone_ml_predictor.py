@@ -82,7 +82,7 @@ def generate_dataset(num_runs=50, steps_per_run=2000):
             continue
             
         # Feature vector at t: s_t (10 cols) + a_t (4 cols) = 14 dimensions
-        features = np.column_stack((states[:-1], thrusters[:-1]))
+        features = np.column_stack((states[:-1], thrusters[1:]))
         
         # Target vector at t: s_{t+1} - s_t = 10 dimensions
         targets = states[1:] - states[:-1]
@@ -105,7 +105,7 @@ def train_model(X, y, model_path="drone_ml_model.pkl"):
     print("\n--- Training Machine Learning Model ---")
     
     # Split into train and validation sets
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2)
     
     # Standardize features for neural network stability
     scaler_X = StandardScaler()
@@ -118,6 +118,7 @@ def train_model(X, y, model_path="drone_ml_model.pkl"):
     y_val_scaled = scaler_y.transform(y_val)
     
     # Define Neural Network (MLP Regressor)
+    # 2 hidden layers with 128 and 64 neurons, ReLU activation, Adam optimizer
     model = MLPRegressor(
         hidden_layer_sizes=(256, 256, 128),  # Bigger capacity
         activation='relu',
@@ -125,9 +126,9 @@ def train_model(X, y, model_path="drone_ml_model.pkl"):
         max_iter=1000,                        # Allow more iterations
         batch_size=512,
         learning_rate_init=0.001,
+        learning_rate='adaptive',             # Cool down learning rate on plateaus
         tol=1e-6,                             # Tighter tolerance to prevent early stopping
         n_iter_no_change=20,                  # Wait longer before giving up
-        random_state=42,
         verbose=True
     )
 
@@ -182,7 +183,7 @@ def evaluate_model(model_data, scenario="diagonal", show_plot=True):
     for t in range(time_steps - 1):
         # We use the TRUE state from physics, not our previous prediction!
         current_state_true = true_states[t] 
-        actual_thruster = true_thrusters[t]
+        actual_thruster = true_thrusters[t + 1]  # Aligned with the active command for the transition
         
         feature = np.hstack((current_state_true, actual_thruster)).reshape(1, -1)
         feature_scaled = scaler_X.transform(feature)
