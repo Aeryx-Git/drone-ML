@@ -30,7 +30,7 @@ except ImportError:
     sys.exit(1)
 
 
-def generate_dataset(num_runs=50, steps_per_run=1000):
+def generate_dataset(num_runs=50, steps_per_run=2000):
     """
     Generate training data by running the drone simulator under various conditions
     with randomized initial states and target positions.
@@ -120,15 +120,16 @@ def train_model(X, y, model_path="drone_ml_model.pkl"):
     # Define Neural Network (MLP Regressor)
     # 2 hidden layers with 128 and 64 neurons, ReLU activation, Adam optimizer
     model = MLPRegressor(
-        hidden_layer_sizes=(128, 64),
+        hidden_layer_sizes=(256, 256, 128),  # Bigger capacity
         activation='relu',
         solver='adam',
-        max_iter=300,
-        batch_size=256,
+        max_iter=500,                         # Allow more iterations
+        batch_size=512,
         learning_rate_init=0.001,
         random_state=42,
         verbose=True
     )
+
     
     # Train the model
     model.fit(X_train_scaled, y_train_scaled)
@@ -173,35 +174,28 @@ def evaluate_model(model_data, scenario="diagonal", show_plot=True):
     scaler_X = model_data['scaler_X']
     scaler_y = model_data['scaler_y']
     
-    # 2. Run recursive ML prediction
-    # Starting from the actual initial state
+       # 2. Run Single-Step prediction (instead of recursive)
     predicted_states = np.zeros_like(true_states)
     predicted_states[0] = true_states[0]
     
     for t in range(time_steps - 1):
-        current_state_pred = predicted_states[t]
+        # We use the TRUE state from physics, not our previous prediction!
+        current_state_true = true_states[t] 
         actual_thruster = true_thrusters[t]
         
-        # Formulate features: [predicted_state_t, actual_thruster_t] (14 dimensions)
-        feature = np.hstack((current_state_pred, actual_thruster)).reshape(1, -1)
-        
-        # Scale inputs
+        feature = np.hstack((current_state_true, actual_thruster)).reshape(1, -1)
         feature_scaled = scaler_X.transform(feature)
-        
-        # Predict scaled delta
         delta_scaled = model.predict(feature_scaled)
-        
-        # Inverse transform to get actual delta
         delta = scaler_y.inverse_transform(delta_scaled.reshape(1, -1)).flatten()
         
-        # Update next predicted state
-        predicted_states[t + 1] = current_state_pred + delta
+        predicted_states[t + 1] = current_state_true + delta
+
         
     # Calculate Mean Squared Error (MSE) on coordinates
     pos_true = true_states[:, [0, 2, 4]] # X, Y, Z
     pos_pred = predicted_states[:, [0, 2, 4]]
     pos_mse = np.mean((pos_true - pos_pred) ** 2)
-    print(f"Recursive Trajectory Prediction Position MSE: {pos_mse:.6f} meters^2")
+    print(f"Single-Step Trajectory Prediction Position MSE: {pos_mse:.6f} meters^2")
     
     # Calculate Mean Absolute Error (MAE)
     pos_mae = np.mean(np.abs(pos_true - pos_pred))
@@ -209,7 +203,7 @@ def evaluate_model(model_data, scenario="diagonal", show_plot=True):
     
     # 3. Plot Comparison Graph
     fig, axes = plt.subplots(3, 2, figsize=(12, 10))
-    fig.suptitle(f"ML Trajectory Prediction vs Physics Ground Truth\nScenario: '{scenario}' (Recursive Forecasting)", fontsize=14)
+    fig.suptitle(f"ML Trajectory Prediction vs Physics Ground Truth\nScenario: '{scenario}' (Single-Step / Teacher Forcing)", fontsize=14)
     
     time_arr = np.arange(time_steps) * dt
     
@@ -219,7 +213,7 @@ def evaluate_model(model_data, scenario="diagonal", show_plot=True):
     for idx, (label, state_idx) in enumerate(zip(coord_labels, state_indices)):
         ax = axes[idx, 0]
         ax.plot(time_arr, true_states[:, state_idx], 'g-', label='Physics (Ground Truth)', linewidth=2)
-        ax.plot(time_arr, predicted_states[:, state_idx], 'r--', label='ML Prediction (Recursive)', linewidth=1.5)
+        ax.plot(time_arr, predicted_states[:, state_idx], 'r--', label='ML Prediction (Single-Step)', linewidth=1.5)
         ax.set_ylabel(f"{label} (m)")
         ax.grid(True)
         if idx == 0:
