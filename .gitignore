@@ -20,3 +20,5 @@ Thumbs.db
 *.html
 *_frames/
 test_frames/
+*.png
+*.pkl
